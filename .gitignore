@@ -1,0 +1,16 @@
+# Local virtual environment
+venv/
+
+# Python caches and compiled files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.cache/
+
+# Local test and debug scripts
+test_validator.py
+
+# Local weights (YOLO downloaded weight, etc.)
+*.pt
