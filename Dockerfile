@@ -1,13 +1,15 @@
 FROM python:3.10-slim
 
-# Install system dependencies required for OpenCV
+# 1. Installation des dépendances système (indispensables pour OpenCV)
 RUN apt-get update && apt-get install -y \
     build-essential \
     libgl1-mesa-glx \
     libglib2.0-0 \
+    gcc \
+    python3-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Set up user permissions for Hugging Face Spaces (UID 1000 is required)
+# 2. Configuration des permissions exigées par Hugging Face (UID 1000)
 RUN useradd -m -u 1000 user
 USER user
 ENV HOME=/home/user \
@@ -15,16 +17,11 @@ ENV HOME=/home/user \
 
 WORKDIR $HOME/app
 
-# Copy requirements and install
+# 3. Copie et installation des packages Python
 COPY --chown=user requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
-# Copy all application files
+# 4. Copie de tout le reste de ton projet Sahl Express
 COPY --chown=user . .
-
-# Warm up the YOLOv11 model download at build time to avoid delays on first API call
-RUN python -c "from ultralytics import YOLO; YOLO('yolo11n.pt')"
-
-# Start the server on port 7860 (Hugging Face Spaces default port)
 CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "7860"]
