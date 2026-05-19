@@ -1,15 +1,15 @@
 FROM python:3.10-slim
 
-# 1. Installation des dépendances système (indispensables pour OpenCV)
+# Install system dependencies required for OpenCV (Modern version)
 RUN apt-get update && apt-get install -y \
     build-essential \
-    libgl1-mesa-glx \
+    libgl1 \
     libglib2.0-0 \
     gcc \
     python3-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# 2. Configuration des permissions exigées par Hugging Face (UID 1000)
+# Set up user permissions for Hugging Face Spaces (UID 1000 is required)
 RUN useradd -m -u 1000 user
 USER user
 ENV HOME=/home/user \
