@@ -24,4 +24,5 @@ RUN pip install --no-cache-dir --upgrade pip && \
 
 # 4. Copie de tout le reste de ton projet Sahl Express
 COPY --chown=user . .
+RUN python -c "from ultralytics import YOLO; YOLO('yolo11n.pt')"
 CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "7860"]
