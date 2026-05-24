@@ -88,7 +88,7 @@ class CINValidator:
         overall_score, details = self.quality_scorer.score(card_crop)
         
         # Reject if blur score is less than 0.5 (equivalent to variance < 250 on a 500 threshold)
-        if details["blur"] < 0.5:
+        if details["blur"] < 0.15:
             return {
                 "status": "blurry",
                 "score": overall_score,
