@@ -105,12 +105,17 @@ class CINValidator:
                 match_flag = self.matcher.match(self.ref_flag, card_crop)
                 # Match against the National Emblem/Seal (top-right)
                 match_emblem = self.matcher.match(self.ref_emblem, card_crop)
+
+                print(f"--- [DEBUG LIGHTGLUE RECTO] ---")
+                print(f"Match Drapeau (Résultat) : {match_flag.get('match', False)}")
+                print(f"Match Emblème (Résultat) : {match_emblem.get('match', False)}")
                 
                 # We require at least one robust visual anchor match to validate it is a Tunisian CIN Recto
                 # PAR CELA (juste pour le test) :
                 is_tunisian = match_flag["match"] or match_emblem["match"]
 
                 if not is_tunisian:
+                    print("--> VERDICT : Rejeté par LightGlue (Ancres tunisiennes introuvables)")
                     return {
                         "status": "no_card",
                         "score": overall_score,
