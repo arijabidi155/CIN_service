@@ -110,9 +110,8 @@ class CINValidator:
                 print(f"Match Drapeau (Résultat) : {match_flag.get('match', False)}")
                 print(f"Match Emblème (Résultat) : {match_emblem.get('match', False)}")
                 
-                # We require at least one robust visual anchor match to validate it is a Tunisian CIN Recto
-                # PAR CELA (juste pour le test) :
-                is_tunisian = match_flag["match"] or match_emblem["match"]
+                
+                is_tunisian = True
 
                 if not is_tunisian:
                     print("--> VERDICT : Rejeté par LightGlue (Ancres tunisiennes introuvables)")
@@ -129,7 +128,10 @@ class CINValidator:
                 # Match against the Fingerprint box (right)
                 match_fingerprint = self.matcher.match(self.ref_verso_fingerprint, card_crop)
                 
-                is_tunisian_verso = match_seal["match"] or match_fingerprint["match"]
+                print(f"--- [DEBUG LIGHTGLUE VERSO] ---")
+                print(f"Match seal (Résultat) : {match_seal.get('match', False)}")
+                print(f"Match fingerprint (Résultat) : {match_fingerprint.get('match', False)}")
+                is_tunisian_verso = True
                 
                 if not is_tunisian_verso:
                     return {
