@@ -151,9 +151,9 @@ class IDCardDetector:
         """Run YOLO detection."""
         results = self.model(
             frame,
-            conf=self.config.confidence_threshold,
+            conf=0.30,
             iou=self.config.nms_iou_threshold,
-            imgsz=self.config.input_size[0],
+            imgsz=640,
             verbose=False,
         )
         
@@ -167,10 +167,17 @@ class IDCardDetector:
                 cls_id = int(box.cls[0])
                 
                 det = Detection(bbox=bbox, confidence=conf, class_id=cls_id)
+
+                # Log de debug pour voir ce que YOLO trouve avant le filtre géométrique
+                print(f"--- [DEBUG YOLO] Carte trouvée avec confiance: {conf:.2f} | Bbox: {bbox}")
                 
                 # Apply aspect ratio and area filters
                 if self._validate_detection(det, frame.shape):
                     detections.append(det)
+                else:
+                    print(f"--- [DEBUG FILTER] Carte REJETÉE par les filtres géométriques (Taille/Ratio)")
+        
+        print(f"--- [DEBUG FINAL] Nombre de cartes retenues après filtres : {len(detections)}")
         
         return detections
     
@@ -213,22 +220,27 @@ class IDCardDetector:
         """
         h, w = frame_shape[:2]
         frame_area = h * w
+        if det.width < 40 or det.height < 40:
+            print(f"      -> Échec: Carte trop petite ({det.width:.1f}x{det.height:.1f})")
+            return False
         
         # Area check
         area_ratio = det.area / frame_area
-        if area_ratio < self.config.min_area_ratio or area_ratio > self.config.max_area_ratio:
+        if area_ratio < 0.05: 
+            print(f"      -> Échec: La carte occupe trop peu de place sur la photo ({area_ratio*100:.1f}%)")
             return False
         
         # Aspect ratio check (more permissive for tilted/perspective cards)
         ar = det.aspect_ratio
         inv_ar = 1.0 / max(ar, 1e-6)
         effective_ar = max(ar, inv_ar)  # Handle both landscape and portrait
-        if effective_ar < self.config.min_aspect_ratio or effective_ar > self.config.max_aspect_ratio:
+        print(f"      -> Stats géométriques : Aspect Ratio effectif = {effective_ar:.2f} | Ratio Aire = {area_ratio*100:.1f}%")
+        if effective_ar < 1.0 or effective_ar > 2.3:
+            print(f"      -> Échec: Aspect Ratio hors limites ({effective_ar:.2f})")
             return False
         
-        # Minimum size check
-        if det.width < 20 or det.height < 20:
-            return False
+        
+        
         
         return True
     

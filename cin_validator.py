@@ -64,11 +64,15 @@ class CINValidator:
     def validate(self, image_url: str, side: str = "recto") -> dict:
         try:
             img = self.download_image(image_url)
+            print(f"--- DEBUG SAHL EXPRESS ---")
+            print(f"Image téléchargée avec succès. Résolution d'origine : {img.shape}")
+            print(f"Demande de validation pour le côté : {side}")
         except Exception as e:
             return {"status": "error", "message": f"Failed to download image: {str(e)}"}
 
         # 1. Run YOLO Detector
         detections = self.detector.detect(img)
+        print(f"Nombre de cartes détectées par YOLO : {len(detections)}")
         
         # If no card detected
         if not detections:
