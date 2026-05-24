@@ -86,15 +86,16 @@ class CINValidator:
         
         # 2. Check quality (Blur/Netteté)
         overall_score, details = self.quality_scorer.score(card_crop)
+        print(f"--- [DEBUG QUALITY] Score de flou calculé : {details.get('blur', 0)}")
         
         # Reject if blur score is less than 0.5 (equivalent to variance < 250 on a 500 threshold)
-        if details["blur"] < 0.15:
-            return {
-                "status": "blurry",
-                "score": overall_score,
-                "details": details,
-                "feedback": self.quality_scorer.get_feedback(details)
-            }
+        #if details["blur"] < 0.15:
+            #return {
+                #"status": "blurry",
+                #"score": overall_score,
+                #"details": details,
+                #"feedback": self.quality_scorer.get_feedback(details)
+            #}
             
         # 3. Tunisian Invariants Verification (SuperPoint + LightGlue)
         if side == "recto":
