@@ -103,6 +103,26 @@ class CINValidator:
         print("--> [NO BARCODE]: No readable codes found on this document surface.")
         return False
 
+    def preprocess_for_ocr(self, card_crop: np.ndarray) -> np.ndarray:
+        """
+        Preprocesses the cropped ID card image to enhance text visibility.
+        Applies grayscale conversion, CLAHE contrast enhancement, blurring, and Otsu thresholding.
+        """
+        # 1. Passage en niveaux de gris
+        gray = cv2.cvtColor(card_crop, cv2.COLOR_BGR2GRAY) if len(card_crop.shape) == 3 else card_crop
+        
+        # 2. Augmentation du contraste (CLAHE) pour faire ressortir le texte
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+        gray = clahe.apply(gray)
+        
+        # 3. Flou léger pour enlever le bruit des motifs de fond
+        blurred = cv2.GaussianBlur(gray, (3, 3), 0)
+        
+        # 4. Seuillage adaptatif pour obtenir un texte noir pur sur fond blanc
+        _, thresh = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        
+        return thresh
+
     def validate(self, image_url: str, side: str = "recto") -> dict:
         try:
             img = self.download_image(image_url)
@@ -132,9 +152,11 @@ class CINValidator:
         print(f"--- [DEBUG QUALITY] Score de flou calculé : {details.get('blur', 0)}")
         
         # 3. OCR Text Extraction (Arabic & French)
-        print("--> Running EasyOCR on card crop/image...")
+        print("--> Preprocessing image for OCR...")
         try:
-            ocr_results = self.ocr_reader.readtext(card_crop, detail=0)
+            ocr_input = self.preprocess_for_ocr(card_crop)
+            print("--> Running EasyOCR on preprocessed card crop/image...")
+            ocr_results = self.ocr_reader.readtext(ocr_input, detail=0)
             combined_text = " ".join(ocr_results)
             print(f"--> [OCR EXTRACTED TEXT]: {combined_text}")
         except Exception as e:
