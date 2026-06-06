@@ -11,3 +11,4 @@ transformers
 huggingface_hub
 pydantic
 python-multipart
+easyocr

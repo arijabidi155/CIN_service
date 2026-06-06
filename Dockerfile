@@ -21,6 +21,7 @@ WORKDIR $HOME/app
 COPY --chown=user requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
+RUN python -c "import easyocr; easyocr.Reader(['ar', 'en'])"
 
 # 4. Copie de tout le reste de ton projet Sahl Express
 COPY --chown=user . .

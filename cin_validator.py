@@ -3,6 +3,9 @@ import requests
 import numpy as np
 import os
 import sys
+import easyocr
+import re
+import torch
 
 from enhanced.config import PipelineConfig
 from enhanced.detector import IDCardDetector
@@ -21,7 +24,20 @@ class CINValidator:
         self.detector = IDCardDetector(self.config.detector)
         self.quality_scorer = QualityScorer(self.config.quality)
         
-        # Initialize LightGlue Matcher for Tunisian features verification
+        # Initialize EasyOCR reader for bilingual Arabic/French validation
+        use_gpu = torch.cuda.is_available()
+        print(f"EasyOCR initializing (GPU={use_gpu})...")
+        self.ocr_reader = easyocr.Reader(['ar', 'en'], gpu=use_gpu)
+        
+        # Initialize barcode detector with fallback warning
+        try:
+            self.barcode_detector = cv2.barcode.BarcodeDetector()
+            print("Successfully initialized cv2.barcode.BarcodeDetector!")
+        except AttributeError:
+            print("WARNING: cv2.barcode.BarcodeDetector is not available in this OpenCV build. Barcode detection will be bypassed.")
+            self.barcode_detector = None
+            
+        # Initialize LightGlue Matcher for Tunisian features verification (Legacy/Fallback)
         self.matcher = LightGlueMatcher(self.config.matcher)
         
         # Path to reference images
@@ -61,6 +77,32 @@ class CINValidator:
             raise ValueError("Failed to decode image from URL")
         return img
 
+    def has_barcode(self, img_crop) -> bool:
+        """
+        Checks the cropped ID card image to see if a barcode or QR code is present.
+        Returns True if found, False otherwise.
+        """
+        if not hasattr(self, 'barcode_detector') or self.barcode_detector is None:
+            print("--> [BARCODE] Detector not initialized or unavailable.")
+            return False
+            
+        try:
+            # Convert to grayscale for clear line contrast detection
+            gray = cv2.cvtColor(img_crop, cv2.COLOR_BGR2GRAY)
+            res = self.barcode_detector.detectAndDecode(gray)
+            ok = res[0]
+            decoded_info = res[1]
+            
+            # If 'ok' is True AND we actually have a non-empty string item in the list
+            if ok and len(decoded_info) > 0 and decoded_info[0].strip():
+                print(f"--> [BARCODE DETECTED]: Found valid code containing data: {decoded_info[0]}")
+                return True
+        except Exception as e:
+            print(f"--> [BARCODE ERROR]: Failed to execute barcode detector: {e}")
+            
+        print("--> [NO BARCODE]: No readable codes found on this document surface.")
+        return False
+
     def validate(self, image_url: str, side: str = "recto") -> dict:
         try:
             img = self.download_image(image_url)
@@ -74,76 +116,107 @@ class CINValidator:
         detections = self.detector.detect(img)
         print(f"Nombre de cartes détectées par YOLO : {len(detections)}")
         
-        # If no card detected
-        if not detections:
-            return {"status": "no_card"}
+        # Take the best detection or fallback to using the full image
+        if detections:
+            best_detection = max(detections, key=lambda d: d.confidence)
+            card_crop = best_detection.crop_from(img)
+            using_crop = True
+            print(f"--> [YOLO] Card detected. Using cropped region of size {card_crop.shape}.")
+        else:
+            print("--> [YOLO] No card detected. Falling back to the full image.")
+            card_crop = img
+            using_crop = False
 
-        # Take the best detection (highest confidence)
-        best_detection = max(detections, key=lambda d: d.confidence)
-        
-        # Crop the card from frame
-        card_crop = best_detection.crop_from(img)
-        
         # 2. Check quality (Blur/Netteté)
         overall_score, details = self.quality_scorer.score(card_crop)
         print(f"--- [DEBUG QUALITY] Score de flou calculé : {details.get('blur', 0)}")
         
-        # Reject if blur score is less than 0.5 (equivalent to variance < 250 on a 500 threshold)
-        #if details["blur"] < 0.15:
-            #return {
-                #"status": "blurry",
-                #"score": overall_score,
-                #"details": details,
-                #"feedback": self.quality_scorer.get_feedback(details)
-            #}
-            
-        # 3. Tunisian Invariants Verification (SuperPoint + LightGlue)
+        # 3. OCR Text Extraction (Arabic & French)
+        print("--> Running EasyOCR on card crop/image...")
+        try:
+            ocr_results = self.ocr_reader.readtext(card_crop, detail=0)
+            combined_text = " ".join(ocr_results)
+            print(f"--> [OCR EXTRACTED TEXT]: {combined_text}")
+        except Exception as e:
+            print(f"Error during OCR extraction: {e}")
+            combined_text = ""
+
+        # 4. Apply Validation Rules
         if side == "recto":
-            # Only run if reference images are available
-            if self.ref_flag is not None and self.ref_emblem is not None:
-                # Match against the Tunisian Flag (top-left)
-                match_flag = self.matcher.match(self.ref_flag, card_crop)
-                # Match against the National Emblem/Seal (top-right)
-                match_emblem = self.matcher.match(self.ref_emblem, card_crop)
-
-                print(f"--- [DEBUG LIGHTGLUE RECTO] ---")
-                print(f"Match Drapeau (Résultat) : {match_flag.get('match', False)}")
-                print(f"Match Emblème (Résultat) : {match_emblem.get('match', False)}")
-                
-                
-                is_tunisian = True
-
-                if not is_tunisian:
-                    print("--> VERDICT : Rejeté par LightGlue (Ancres tunisiennes introuvables)")
-                    return {
-                        "status": "no_card",
-                        "score": overall_score,
-                        "details": details,
-                        "feedback": "Le document n'est pas identifié comme le Recto d'une CIN tunisienne valide (ancres visuelles introuvables)."
-                    }
-        elif side == "verso":
-            if self.ref_verso_seal is not None and self.ref_verso_fingerprint is not None:
-                # Match against the Ministry Seal (bottom center)
-                match_seal = self.matcher.match(self.ref_verso_seal, card_crop)
-                # Match against the Fingerprint box (right)
-                match_fingerprint = self.matcher.match(self.ref_verso_fingerprint, card_crop)
-                
-                print(f"--- [DEBUG LIGHTGLUE VERSO] ---")
-                print(f"Match seal (Résultat) : {match_seal.get('match', False)}")
-                print(f"Match fingerprint (Résultat) : {match_fingerprint.get('match', False)}")
-                is_tunisian_verso = True
-                
-                if not is_tunisian_verso:
-                    return {
-                        "status": "no_card",
-                        "score": overall_score,
-                        "details": details,
-                        "feedback": "Le document n'est pas identifié comme le Verso d'une CIN tunisienne valide."
-                    }
+            has_name = "الاسم" in combined_text
+            has_last_name = "اللقب" in combined_text
+            has_dob = "الولادة" in combined_text or "ولادة" in combined_text
             
+            # Find CIN number (8 digits, starting with 0 or 1)
+            cin_match = re.search(r'\b[01]\d{7}\b', combined_text)
+            cin_number = cin_match.group(0) if cin_match else None
+            
+            print(f"--> [RECTO CHECK] Name: {has_name} | Last Name: {has_last_name} | DOB: {has_dob} | CIN: {cin_number}")
+            
+            is_valid = has_name and has_last_name and has_dob and (cin_number is not None)
+            
+            details["cin_number"] = cin_number
+            details["barcode_present"] = False
+            
+            if is_valid:
+                return {
+                    "status": "valid",
+                    "score": overall_score,
+                    "details": details,
+                    "feedback": f"Card validation successful (CIN: {cin_number})"
+                }
+            else:
+                missing = []
+                if not has_name: missing.append("الاسم")
+                if not has_last_name: missing.append("اللقب")
+                if not has_dob: missing.append("تاريخ الولادة")
+                if not cin_number: missing.append("numéro de CIN (8 chiffres)")
+                
+                return {
+                    "status": "no_card",
+                    "score": overall_score,
+                    "details": details,
+                    "feedback": f"Recto validation failed. Missing: {', '.join(missing)}"
+                }
+                
+        elif side == "verso":
+            has_address = "العنوان" in combined_text
+            has_issue_place = "تونس في" in combined_text
+            has_barcode_flag = self.has_barcode(card_crop)
+            
+            print(f"--> [VERSO CHECK] Address: {has_address} | Issue Place (Tunis on): {has_issue_place} | Barcode: {has_barcode_flag}")
+            
+            is_valid = has_address and has_issue_place
+            
+            details["barcode_present"] = has_barcode_flag
+            
+            if is_valid:
+                if has_barcode_flag:
+                    feedback = "Verso tracking pass: Barcode structural anchor verified."
+                else:
+                    feedback = "Verso validation successful (Note: Barcode anchor missing or unreadable)."
+                
+                return {
+                    "status": "valid",
+                    "score": overall_score,
+                    "details": details,
+                    "feedback": feedback
+                }
+            else:
+                missing = []
+                if not has_address: missing.append("العنوان")
+                if not has_issue_place: missing.append("تونس في")
+                
+                return {
+                    "status": "no_card",
+                    "score": overall_score,
+                    "details": details,
+                    "feedback": f"Verso validation failed. Missing: {', '.join(missing)}"
+                }
+                
         return {
-            "status": "valid",
+            "status": "no_card",
             "score": overall_score,
             "details": details,
-            "feedback": "Card validation successful"
+            "feedback": "Unknown verification side specified."
         }
